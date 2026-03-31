@@ -33,6 +33,8 @@
     }
   </script>
 
+  <script src="https://wow.zamimg.com/widgets/power.js"></script>
+  
   <script type="module">
     import { initializeApp } from "firebase/app";
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut ,sendPasswordResetEmail} from "firebase/auth";
@@ -50,6 +52,7 @@
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
+    const whTooltips = {colorLinks: true, iconizeLinks: true, renameLinks: false};
 
     window.fb = {
       auth, db, onAuthStateChanged, signInWithEmailAndPassword, 
@@ -521,7 +524,12 @@ const App = () => {
         <div className="flex bg-slate-900/40 p-1.5 rounded-2xl border border-slate-800 gap-1 overflow-x-auto">
           {[
             { id:'query',    label:'分區查詢', Icon:LayoutGrid, visible: true },
-            { id:'record',   label:'掉落登記', Icon:Plus, visible: userRole === 'leader' || userRole === 'admin' },
+            { 
+              id:'record',   
+              label: (userRole === 'leader' || userRole === 'admin') ? '掉落登記' : '裝備與PR查詢', 
+              Icon: (userRole === 'leader' || userRole === 'admin') ? Plus : Search, 
+              visible: true 
+            },
             { id:'wishlist', label:'怨念裝登記',Icon:Star, visible: true },
             { id:'history',  label:'分配歷史', Icon:HistoryIcon, visible: true },
             { id:'admin',    label:'後台管理', Icon:ShieldCheck, visible: userRole === 'admin' }
@@ -565,7 +573,17 @@ const App = () => {
                               return (
                                 <div key={item.name} className="bg-slate-950/40 border border-slate-800 p-5 rounded-2xl relative">
                                   {wishes.length > 0 && <div className="absolute top-4 right-4"><Star size={14} className="text-amber-500" fill="currentColor"/></div>}
-                                  <div className="text-purple-400 font-black text-base mb-1">{item.name}</div>
+                                  <div className="mb-2">
+                                  <a 
+                                    href={`https://www.wowhead.com/wotlk/item=${item.id || ''}`} 
+                                    data-wowhead={`item=${item.id || ''}&domain=tw.wotlk`}
+                                    className="text-purple-400 font-black text-lg hover:text-purple-300 transition-colors pointer-events-auto inline-block"
+                                    target="_blank" 
+                                    rel="noreferrer"
+                                  >
+                                    {item.name}
+                                  </a>
+                                </div>
                                   {renderPriorities(item)}
                                   {wishes.length > 0 && <div className="mt-4 pt-3 border-t border-slate-800/50 flex items-center gap-2 text-amber-500 text-[10px] font-bold"><Star size={10} fill="currentColor"/> 怨念：{wishes.join('、')}</div>}
                                 </div>
@@ -587,15 +605,19 @@ const App = () => {
           )}
 
           {/* === Record Tab (含點數管理與怨念名單顯示) === */}
-          {activeTab === 'record' && (userRole === 'leader' || userRole === 'admin') && (
+          {activeTab === 'record' && (
             <div className="p-8 max-w-4xl mx-auto space-y-10 slide-from-bottom">
               
               <div className="bg-slate-950/40 p-8 rounded-[2rem] border border-slate-800 space-y-6">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="bg-blue-900/30 p-2 rounded-lg"><Plus className="text-blue-400"/></div>
                   <div>
-                    <h2 className="text-2xl font-black italic text-white tracking-tight">掉落登記</h2>
-                    <p className="text-slate-500 text-xs font-bold uppercase mt-1">登記本次 Boss 掉落 (此處消耗僅做紀錄)</p>
+                    <h2 className="text-2xl font-black italic text-white tracking-tight">
+                      {(userRole === 'admin' || userRole === 'leader') ? '掉落登記' : '裝備與PR查詢'}
+                    </h2>
+                    <p className="text-slate-500 text-xs font-bold uppercase mt-1">
+                      {(userRole === 'admin' || userRole === 'leader') ? '登記本次 Boss 掉落 (此處消耗僅做紀錄)' : '查詢裝備優先級與怨念名單'}
+                    </p>
                   </div>
                 </div>
 
@@ -607,7 +629,7 @@ const App = () => {
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase">掉落裝備</label>
+                    <label className="text-[10px] font-black text-slate-500 uppercase">裝備</label>
                     <select className="w-full bg-slate-900 border-2 border-slate-800 rounded-xl p-4 text-white" value={dropForm.item} onChange={e => setDropForm({...dropForm, item:e.target.value})}>
                       <option value="">選擇品項</option>
                       {getItemsByBoss(dropForm.boss).map(i => <option key={i.name} value={i.name}>{i.name}</option>)}
@@ -615,70 +637,104 @@ const App = () => {
                   </div>
                 </div>
 
-                {dropForm.item && (
-                  <div className="bg-blue-600/5 border border-blue-500/20 p-6 rounded-2xl animate-in mt-2 mb-4">
-                    <div className="text-blue-400 font-black text-xs uppercase italic tracking-widest mb-3 flex items-center gap-2"><Info size={14}/> 裝備優先參考依據：</div>
-                    {renderPriorities(getItemsByBoss(dropForm.boss).find(i=>i.name===dropForm.item))}
-                    
-                    {/* 新增：如果該裝備有怨念申請，直接顯示申請者和 PR */}
-                    {getWishers(dropForm.item).length > 0 && (
-                      <div className="mt-5 pt-4 border-t border-blue-500/20 animate-in">
-                        <div className="text-amber-500 font-black text-xs uppercase flex items-center gap-2 mb-3 tracking-widest">
-                          <Star size={14} fill="currentColor"/> 此裝備的怨念申請名單：
-                        </div>
-                        <div className="flex flex-wrap gap-3">
-                          {getWishers(dropForm.item).map(wName => {
-                            const wUser = allUsers.find(u => u.displayName === wName);
-                            const pr = wUser ? (wUser.prPoints || 0) : 0;
-                            return (
-                              <div key={wName} className="bg-amber-950/40 border border-amber-500/30 pl-3 pr-2 py-1.5 rounded-xl flex items-center gap-3 shadow-lg">
-                                <span className="text-amber-200 font-bold text-sm tracking-wide">{wName}</span>
-                                <span className="bg-emerald-900/60 text-emerald-400 text-[11px] font-black px-2 py-1 rounded-lg flex items-center gap-1">
-                                  <Gem size={12}/> PR: {pr}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
+                {dropForm.item && (() => {
+                  const selectedItemData = getItemsByBoss(dropForm.boss).find(i => i.name === dropForm.item);
+                  return (
+                    <div className="bg-blue-600/5 border border-blue-500/20 p-6 rounded-2xl animate-in mt-2 mb-4">
+                      {/* 裝備詳細連結 */}
+                      <div className="mb-4 pb-4 border-b border-blue-500/20">
+                        <div className="text-slate-500 font-black text-[10px] uppercase mb-1">已選擇裝備</div>
+                        <a 
+                          href={`https://www.wowhead.com/wotlk/item=${selectedItemData?.id || ''}`} 
+                          data-wowhead={`item=${selectedItemData?.id || ''}&domain=tw.wotlk`}
+                          className="text-purple-400 font-black text-xl hover:text-purple-300 transition-colors pointer-events-auto inline-block drop-shadow-md"
+                          target="_blank" 
+                          rel="noreferrer"
+                        >
+                          {selectedItemData?.name}
+                        </a>
                       </div>
-                    )}
-                  </div>
-                )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase">獲勝團員 ID</label>
-                    <input type="text" placeholder="輸入 ID" className="w-full bg-slate-900 border-2 border-slate-800 rounded-xl p-4 text-white" value={dropForm.winner} onChange={e => setDropForm({...dropForm, winner:e.target.value})}/>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase">消耗點數/順位紀錄</label>
-                    <input type="text" placeholder="例如: 100" className="w-full bg-slate-900 border-2 border-slate-800 rounded-xl p-4 text-white" value={dropForm.points} onChange={e => setDropForm({...dropForm, points:e.target.value})}/>
-                  </div>
-                </div>
-                <button onClick={addRecord} disabled={!dropForm.item || !dropForm.winner} className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 text-white font-black py-4 rounded-2xl mt-4">確認登記掉落 (寫入資料庫)</button>
+                      <div className="text-blue-400 font-black text-xs uppercase italic tracking-widest mb-3 flex items-center gap-2">
+                        <Info size={14}/> 裝備優先參考依據：
+                      </div>
+                      {renderPriorities(selectedItemData)}
+                      
+                      {/* 怨念名單顯示 */}
+                      {getWishers(dropForm.item).length > 0 && (
+                        <div className="mt-5 pt-4 border-t border-blue-500/20 animate-in">
+                          <div className="text-amber-500 font-black text-xs uppercase flex items-center gap-2 mb-3 tracking-widest">
+                            <Star size={14} fill="currentColor"/> 此裝備的怨念申請名單：
+                          </div>
+                          <div className="flex flex-wrap gap-3">
+                            {getWishers(dropForm.item).map(wName => {
+                              const wUser = allUsers.find(u => u.displayName === wName);
+                              const pr = wUser ? (wUser.prPoints || 0) : 0;
+                              return (
+                                <div key={wName} className="bg-amber-950/40 border border-amber-500/30 pl-3 pr-2 py-1.5 rounded-xl flex items-center gap-3 shadow-lg">
+                                  <span className="text-amber-200 font-bold text-sm tracking-wide">{wName}</span>
+                                  <span className="bg-emerald-900/60 text-emerald-400 text-[11px] font-black px-2 py-1 rounded-lg flex items-center gap-1">
+                                    <Gem size={12}/> PR: {pr}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* --- 只有管理員/團長才看得到的寫入區塊 --- */}
+                {(userRole === 'admin' || userRole === 'leader') && (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-500 uppercase">獲勝團員 ID</label>
+                        <input type="text" placeholder="輸入 ID" className="w-full bg-slate-900 border-2 border-slate-800 rounded-xl p-4 text-white" value={dropForm.winner} onChange={e => setDropForm({...dropForm, winner:e.target.value})}/>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-500 uppercase">消耗點數/順位紀錄</label>
+                        <input type="text" placeholder="例如: 100" className="w-full bg-slate-900 border-2 border-slate-800 rounded-xl p-4 text-white" value={dropForm.points} onChange={e => setDropForm({...dropForm, points:e.target.value})}/>
+                      </div>
+                    </div>
+                    <button onClick={addRecord} disabled={!dropForm.item || !dropForm.winner} className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 text-white font-black py-4 rounded-2xl mt-4">確認登記掉落 (寫入資料庫)</button>
+                  </>
+                )}
               </div>
 
-              {/* 團隊優先點數管理 */}
+              {/* 團隊優先點數 (PR) 列表 */}
               <div className="bg-slate-950/40 p-8 rounded-[2rem] border border-slate-800 space-y-6">
                 <div className="flex items-center gap-3 mb-6">
                   <div className="bg-emerald-900/30 p-2 rounded-lg"><Gem className="text-emerald-400"/></div>
                   <div>
-                    <h2 className="text-2xl font-black italic text-white tracking-tight">團隊優先點數 (PR) 管理</h2>
-                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mt-1">手動控制團員拿裝優先度：未拿裝可 +1，拿裝後 -1</p>
+                    <h2 className="text-2xl font-black italic text-white tracking-tight">團隊優先點數 (PR)</h2>
+                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mt-1">
+                      {(userRole === 'admin' || userRole === 'leader') ? '手動控制團員拿裝優先度' : '查看目前團隊成員的優先點數'}
+                    </p>
                   </div>
                 </div>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {allUsers.filter(u => u.displayName).map(u => (
+                  {allUsers.filter(u => u.displayName).sort((a, b) => (b.prPoints || 0) - (a.prPoints || 0) || a.displayName.localeCompare(b.displayName)).map(u => (
                     <div key={u.id} className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl flex items-center justify-between hover:border-slate-700 transition-colors">
                       <div className="overflow-hidden">
                         <div className="font-black text-blue-400 truncate pr-2">{u.displayName}</div>
                         <div className="text-[10px] text-slate-500 font-bold uppercase">{u.role}</div>
                       </div>
                       <div className="flex items-center gap-2 bg-slate-950 p-1 rounded-xl border border-slate-800 shrink-0">
-                        <button onClick={() => adjustPoints(u.id, u.prPoints, -1, u.displayName)} className="bg-red-950/40 text-red-400 hover:bg-red-600 hover:text-white w-8 h-8 rounded-lg font-black transition-all flex items-center justify-center">-1</button>
+                        {/* 只有管理員/團長才看得到 -1 按鈕 */}
+                        {(userRole === 'admin' || userRole === 'leader') && (
+                          <button onClick={() => adjustPoints(u.id, u.prPoints, -1, u.displayName)} className="bg-red-950/40 text-red-400 hover:bg-red-600 hover:text-white w-8 h-8 rounded-lg font-black transition-all flex items-center justify-center">-1</button>
+                        )}
+                        
                         <span className="font-black text-emerald-400 text-base w-6 text-center">{u.prPoints || 0}</span>
-                        <button onClick={() => adjustPoints(u.id, u.prPoints, 1, u.displayName)} className="bg-emerald-950/40 text-emerald-400 hover:bg-emerald-600 hover:text-white w-8 h-8 rounded-lg font-black transition-all flex items-center justify-center">+1</button>
+                        
+                        {/* 只有管理員/團長才看得到 +1 按鈕 */}
+                        {(userRole === 'admin' || userRole === 'leader') && (
+                          <button onClick={() => adjustPoints(u.id, u.prPoints, 1, u.displayName)} className="bg-emerald-950/40 text-emerald-400 hover:bg-emerald-600 hover:text-white w-8 h-8 rounded-lg font-black transition-all flex items-center justify-center">+1</button>
+                        )}
                       </div>
                     </div>
                   ))}

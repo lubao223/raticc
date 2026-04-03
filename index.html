@@ -289,15 +289,53 @@ const App = () => {
 
   const addRecord = async () => {
     if (!dropForm.item || !dropForm.winner || !dropForm.points) return;
-    await window.fb.addDoc(window.fb.collection(window.fb.db, 'records'), {
+    
+    // 1. 檢查這位贏家是否有這件裝備的怨念
+    const wisherRecord = wishlists.find(w => 
+      w.name === dropForm.winner && w.items.includes(dropForm.item)
+    );
+    const isWishMatch = !!wisherRecord;
+
+    // 2. 準備分配紀錄資料 (標記是否為怨念)
+    const recordData = {
       ...dropForm,
+      isWish: isWishMatch, // 新增標記
       date: new Date().toLocaleString(),
       timestamp: Date.now(),
       recordedBy: user.email
-    });
-    writeLog('RECORD', `分配裝備 [${dropForm.item}] 給 ${dropForm.winner}，點數/順位紀錄: ${dropForm.points}`);
-    setDropForm({ ...dropForm, item:'', winner:'', points:'' });
-    alert("掉落已登記！(若需扣除得獎者優先點數，請在下方點數管理手動操作)");
+    };
+
+    try {
+      // 3. 寫入分配紀錄
+      await window.fb.addDoc(window.fb.collection(window.fb.db, 'records'), recordData);
+
+      // 4. 如果是怨念裝，執行自動刪除邏輯
+      if (isWishMatch) {
+        const updatedItems = wisherRecord.items.filter(it => it !== dropForm.item);
+        
+        if (updatedItems.length === 0) {
+          // 如果刪除後沒裝備了，直接刪除該文件
+          await window.fb.deleteDoc(window.fb.doc(window.fb.db, 'wishlists', wisherRecord.id));
+        } else {
+          // 否則只更新裝備清單
+          await window.fb.updateDoc(window.fb.doc(window.fb.db, 'wishlists', wisherRecord.id), {
+            items: updatedItems
+          });
+        }
+        
+        // Log 紀錄標記為怨念達成
+        writeLog('WISH', `怨念達成！自動移除 ${dropForm.winner} 的 [${dropForm.item}] 申請`);
+      }
+
+      writeLog('RECORD', `分配裝備 [${dropForm.item}] 給 ${dropForm.winner}${isWishMatch ? ' (★怨念裝)' : ''}，點數: ${dropForm.points}`);
+      
+      setDropForm({ ...dropForm, item:'', winner:'', points:'' });
+      alert(isWishMatch ? "分配成功！已自動移除該員的怨念裝申請。" : "掉落已登記！");
+      
+    } catch (e) {
+      console.error("Record Error:", e);
+      alert("登記失敗，請檢查網路或權限");
+    }
   };
 
   const addWish = async () => {
@@ -446,7 +484,7 @@ const App = () => {
               {!authForm.isLogin && (
                 <div className="slide-from-top">
                   <label className="text-xs text-amber-400 font-bold uppercase">遊戲角色 ID (必填)</label>
-                  <input type="text" required placeholder="例如：法斯" value={authForm.gameId} onChange={e => setAuthForm({...authForm, gameId: e.target.value})} className="w-full bg-slate-950 border border-amber-500/50 rounded-xl p-4 outline-none focus:border-amber-500 text-white mt-1" />
+                  <input type="text" required placeholder="例如：鹿鹿" value={authForm.gameId} onChange={e => setAuthForm({...authForm, gameId: e.target.value})} className="w-full bg-slate-950 border border-amber-500/50 rounded-xl p-4 outline-none focus:border-amber-500 text-white mt-1" />
                   <p className="text-[10px] text-slate-500 mt-1">此 ID 將綁定您的怨念裝清單，日後可修改。</p>
                 </div>
               )}
@@ -690,10 +728,36 @@ const App = () => {
                 {(userRole === 'admin' || userRole === 'leader') && (
                   <>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black text-slate-500 uppercase">獲勝團員 ID</label>
-                        <input type="text" placeholder="輸入 ID" className="w-full bg-slate-900 border-2 border-slate-800 rounded-xl p-4 text-white" value={dropForm.winner} onChange={e => setDropForm({...dropForm, winner:e.target.value})}/>
-                      </div>
+                      {/* --- 修改後的得獎者輸入區塊 --- */}
+                    <div className="space-y-2 relative"> {/* 這裡加了 relative 方便定位 */}
+                      <label className="text-[10px] font-black text-slate-500 uppercase">獲勝團員 ID</label>
+                      <input 
+                        type="text" 
+                        placeholder="輸入 ID (支援關鍵字搜尋)" 
+                        className="w-full bg-slate-900 border-2 border-slate-800 rounded-xl p-4 text-white" 
+                        value={dropForm.winner} 
+                        onChange={e => setDropForm({...dropForm, winner:e.target.value})}
+                        autoComplete="off"
+                      />
+                      
+                      {/* 關鍵字補全選單 */}
+                      {dropForm.winner && !allUsers.find(u => u.displayName === dropForm.winner) && (
+                        <div className="absolute z-10 w-full mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-48 overflow-y-auto">
+                          {allUsers
+                            .filter(u => u.displayName && u.displayName.toLowerCase().includes(dropForm.winner.toLowerCase()))
+                            .map(u => (
+                              <div 
+                                key={u.id} 
+                                className="p-3 hover:bg-blue-600 cursor-pointer text-sm font-bold border-b border-slate-700/50 last:border-0"
+                                onClick={() => setDropForm({...dropForm, winner: u.displayName})}
+                              >
+                                {u.displayName} <span className="text-[10px] opacity-60 ml-2">({u.role})</span>
+                              </div>
+                            ))
+                          }
+                        </div>
+                      )}
+                    </div>
                       <div className="space-y-2">
                         <label className="text-[10px] font-black text-slate-500 uppercase">消耗點數/順位紀錄</label>
                         <input type="text" placeholder="例如: 100" className="w-full bg-slate-900 border-2 border-slate-800 rounded-xl p-4 text-white" value={dropForm.points} onChange={e => setDropForm({...dropForm, points:e.target.value})}/>
@@ -868,6 +932,11 @@ const App = () => {
                         <td className="py-6">
                           <div className="text-[10px] font-bold text-slate-600 mb-1">{r.boss}</div>
                           <div className="text-purple-400 font-black text-lg">{r.item}</div>
+                          {r.isWish && (
+                            <span className="bg-amber-500/20 text-amber-500 text-[10px] px-2 py-0.5 rounded border border-amber-500/30 font-black">
+                              ★ 怨念
+                            </span>
+                          )}
                         </td>
                         <td className="py-6 text-center font-black text-blue-400 text-lg">{r.winner}</td>
                         <td className="py-6 text-center"><span className="bg-slate-900 border border-slate-800 px-4 py-1.5 rounded-full text-xs font-black text-slate-300">{r.points}</span></td>

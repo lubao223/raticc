@@ -290,51 +290,60 @@ const App = () => {
   const addRecord = async () => {
     if (!dropForm.item || !dropForm.winner || !dropForm.points) return;
     
-    // 1. 檢查這位贏家是否有這件裝備的怨念
+    // 1. 尋找贏家資料與怨念紀錄
+    const winnerUser = allUsers.find(u => u.displayName === dropForm.winner);
     const wisherRecord = wishlists.find(w => 
       w.name === dropForm.winner && w.items.includes(dropForm.item)
     );
     const isWishMatch = !!wisherRecord;
 
-    // 2. 準備分配紀錄資料 (標記是否為怨念)
     const recordData = {
       ...dropForm,
-      isWish: isWishMatch, // 新增標記
+      isWish: isWishMatch,
       date: new Date().toLocaleString(),
       timestamp: Date.now(),
       recordedBy: user.email
     };
 
     try {
-      // 3. 寫入分配紀錄
+      // 2. 寫入分配紀錄
       await window.fb.addDoc(window.fb.collection(window.fb.db, 'records'), recordData);
 
-      // 4. 如果是怨念裝，執行自動刪除邏輯
+      // 3. 處理怨念裝達成後的邏輯 (移除清單 + 自動扣 3 分)
       if (isWishMatch) {
+        // --- 移除怨念清單項目 ---
         const updatedItems = wisherRecord.items.filter(it => it !== dropForm.item);
-        
         if (updatedItems.length === 0) {
-          // 如果刪除後沒裝備了，直接刪除該文件
           await window.fb.deleteDoc(window.fb.doc(window.fb.db, 'wishlists', wisherRecord.id));
         } else {
-          // 否則只更新裝備清單
           await window.fb.updateDoc(window.fb.doc(window.fb.db, 'wishlists', wisherRecord.id), {
             items: updatedItems
           });
         }
+
+        // --- 自動扣除 PR 點數 (每次 -3，最低為 0) ---
+        if (winnerUser) {
+          const currentPr = winnerUser.prPoints || 0;
+          const newPr = Math.max(0, currentPr - 3); // 確保最低為 0
+          
+          await window.fb.updateDoc(window.fb.doc(window.fb.db, 'users', winnerUser.id), {
+            prPoints: newPr
+          });
+          
+          writeLog('USER', `怨念達成扣分：${dropForm.winner} 獲得怨念裝，PR 從 ${currentPr} 降至 ${newPr}`);
+        }
         
-        // Log 紀錄標記為怨念達成
         writeLog('WISH', `怨念達成！自動移除 ${dropForm.winner} 的 [${dropForm.item}] 申請`);
       }
 
-      writeLog('RECORD', `分配裝備 [${dropForm.item}] 給 ${dropForm.winner}${isWishMatch ? ' (★怨念裝)' : ''}，點數: ${dropForm.points}`);
+      writeLog('RECORD', `分配裝備 [${dropForm.item}] 給 ${dropForm.winner}${isWishMatch ? ' (★怨念裝 -3PR)' : ''}，點數/順位: ${dropForm.points}`);
       
       setDropForm({ ...dropForm, item:'', winner:'', points:'' });
-      alert(isWishMatch ? "分配成功！已自動移除該員的怨念裝申請。" : "掉落已登記！");
+      alert(isWishMatch ? `怨念達成！已自動移除申請並扣除 ${dropForm.winner} 3點 PR。` : "掉落已登記！");
       
     } catch (e) {
       console.error("Record Error:", e);
-      alert("登記失敗，請檢查網路或權限");
+      alert("登記失敗，請檢查權限");
     }
   };
 
